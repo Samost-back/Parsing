@@ -45,53 +45,67 @@ function parseAd(html, url) {
 
   // Ціна
   const priceMatch = html.match(/(\d[\d\s]+)\s*\$/);
-  const priceUsd = priceMatch ? parseInt(priceMatch[1].replace(/\s/g, ""), 10)
-  : null ;
+  const priceUsd = priceMatch
+    ? parseInt(priceMatch[1].replace(/\s/g, ""), 10)
+    : null;
 
   // Пробіг
-  const mileageMatch = html.match(/([\d\s]+)\s*тис.\s*км/);
-  const mileage = mileageMatch 
-    ? parseInt(mileageMatch[1].replace(/\s/g, ""), 10) * 1000 
+  const mileageMatch = html.match(/([\d\s]+)\s*тис\.?\s*км/i);
+  const mileage = mileageMatch
+    ? parseInt(mileageMatch[1].replace(/\s/g, ""), 10) * 1000
     : null;
 
   // Локація
   const locationMatch = html.match(/UA,\s*([^,]+\s+обл\.),\s*([^,<]+)/);
-  const location = locationMatch 
-    ? `${locationMatch[1].trim()}, ${locationMatch[2].trim()}` 
+  const location = locationMatch
+    ? `${locationMatch[1].trim()}, ${locationMatch[2].trim()}`
     : null;
 
   // Опис
-  let description = $('.expandable-text-template').text().trim();
+  let description = $(".expandable-text-template").text().trim();
 
   if (description.length < 20) {
-    description = $('h2:contains("Опис")')
-      .parent()
-      .next()
-      .text()
-      .trim();
+    description = $('h2:contains("Опис")').parent().next().text().trim();
   }
 
-if (!description) description = null;
+  if (!description) description = null;
 
   // Тип кузова
-  const bodyMatch = html.match(
-    /Рефрижератор|Тентований|Самоскид|Фургон|Платформа|Контейнеровоз|Цистерна|Борт|Евакуатор/
-  );
-  const bodyType = bodyMatch ? bodyMatch[0] : null;
+  const BODY_TYPES = [
+    "Рефрижератор",
+    "Тентований",
+    "Самоскид",
+    "Фургон",
+    "Платформа",
+    "Контейнеровоз",
+    "Цистерна",
+    "Борт",
+    "Евакуатор",
+  ];
+  const bodyType = BODY_TYPES.find((t) => html.includes(t)) || null;
 
   // Фото
-  const photoSliderMatch = html.match(
-    /<div id="photoSlider"[^>]*>.*?<\/div>\s*<\/div>/s
-  );
+  const photos = [];
 
-  const photoRegex =
-    /https:\/\/cdn\d*\.riastatic\.com\/photosnew\/auto\/photo\/[^\s"'<>]+\.jpg/g;
+  $("#photoSlider img, .carousel-inner img").each((_, el) => {
+    let src =
+      $(el).attr("src") ||
+      $(el).attr("data-src") ||
+      $(el).attr("data-original");
 
-  const photos = photoSliderMatch
-    ? [...new Set(photoSliderMatch[0].match(photoRegex) || [])]
-    : [];
+    if (
+      src &&
+      src.includes("riastatic.com/photosnew/auto/photo") &&
+      src.endsWith(".jpg")
+    ) {
+      src = src.replace("/s/", "/f/");
+      photos.push(src);
+    }
+  });
+  const uniquePhotos = [...new Set(photos)];
 
-  const adId = url.match(/(\d+)\.html/)?.[1] || null;
+  const adId = url.match(/(\d+)\.html/)?.[1];
+  if (!adId) throw new Error(`Cannot parse ad ID from URL: ${url}`);
 
   return {
     id: adId,
@@ -102,7 +116,7 @@ if (!description) description = null;
     location,
     bodyType,
     description,
-    photos,
+    photos: uniquePhotos,
   };
 }
 
