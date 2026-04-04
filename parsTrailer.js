@@ -2,66 +2,53 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const fs = require("fs");
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const randomDelay = () => sleep(Math.floor(Math.random() * 5000 + 3000));
-
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-];
-
-const buildHeaders = () => ({
-  "User-Agent": USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8",
-  "Accept-Encoding": "gzip, deflate, br",
-  Referer: "https://auto.ria.com/uk/",
-  Connection: "keep-alive",
-  "Upgrade-Insecure-Requests": "1",
-});
-
-async function fetchPage(url, retries = 3) {
+async function fetchPage(url, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      await randomDelay();
       const res = await axios.get(url, {
-        headers: buildHeaders(),
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+        },
         timeout: 20000,
       });
+
       if (res.status === 200) return res.data;
     } catch (err) {
-      if (attempt < retries) await sleep(3000 * attempt);
+      if (attempt === retries) throw err;
     }
   }
-  throw new Error(`Failed to fetch after ${retries} attempts`);
 }
 
 function parseAd(html, url) {
   const $ = cheerio.load(html);
 
-  // Назва
   const title = $("h1").first().text().trim() || null;
 
-  // Ціна
-  const priceMatch = html.match(/(\d[\d\s]+)\s*\$/);
+  const priceMatch = $("#basicInfoPrice strong").first().text().trim();
   const priceUsd = priceMatch
-    ? parseInt(priceMatch[1].replace(/\s/g, ""), 10)
+    ? parseInt(priceMatch.replace(/\D/g, ""), 10)
     : null;
 
-  // Пробіг
-  const mileageMatch = html.match(/([\d\s]+)\s*тис\.?\s*км/i);
-  const mileage = mileageMatch
-    ? parseInt(mileageMatch[1].replace(/\s/g, ""), 10) * 1000
-    : null;
+  let mileage = null;
+  const mileageEl = $("#basicInfoTableMainInfo0 span.body").first();
+  if (mileageEl.length) {
+    const text = mileageEl.text().replace(/\s/g, "");
+    const match = text.match(/(\d+)тис\.?км/i);
+    if (match) mileage = parseInt(match[1], 10) * 1000;
+  }
 
-  // Локація
-  const locationMatch = html.match(/UA,\s*([^,]+\s+обл\.),\s*([^,<]+)/);
-  const location = locationMatch
-    ? `${locationMatch[1].trim()}, ${locationMatch[2].trim()}`
-    : null;
+  const locationEl = $("#basicInfoTableMainInfoGeo span.body").first();
+  let location = null;
 
-  // Опис
+  if (locationEl.length) {
+    const parts = locationEl.text().trim().split(",");
+    if (parts.length >= 3) {
+      const region = parts[1].trim();
+      const city = parts[2].trim();
+      location = `${region}, ${city}`;
+    }
+  }
+
   let description = $(".expandable-text-template").text().trim();
 
   if (description.length < 20) {
@@ -70,7 +57,6 @@ function parseAd(html, url) {
 
   if (!description) description = null;
 
-  // Тип кузова
   const BODY_TYPES = [
     "Рефрижератор",
     "Тентований",
@@ -82,30 +68,46 @@ function parseAd(html, url) {
     "Борт",
     "Евакуатор",
   ];
-  const bodyType = BODY_TYPES.find((t) => html.includes(t)) || null;
 
-  // Фото
-  const photos = [];
-
-  $("#photoSlider img, .carousel-inner img").each((_, el) => {
-    let src =
-      $(el).attr("src") ||
-      $(el).attr("data-src") ||
-      $(el).attr("data-original");
-
-    if (
-      src &&
-      src.includes("riastatic.com/photosnew/auto/photo") &&
-      src.endsWith(".jpg")
-    ) {
-      src = src.replace("/s/", "/f/");
-      photos.push(src);
+  let bodyType = null;
+  $("#descCharacteristicsValue span.body").each((_, el) => {
+    const text = $(el).text().trim();
+    if (BODY_TYPES.includes(text)) {
+      bodyType = text;
+      return false;
     }
   });
-  const uniquePhotos = [...new Set(photos)];
+
+  const photos = new Set();
+
+  try {
+    const jsonMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{.+?\});/);
+
+    if (jsonMatch) {
+      const jsonData = JSON.parse(jsonMatch[1]);
+      const gallery = jsonData?.ad?.photos ?? [];
+
+      gallery.forEach((p) => {
+        if (p.full) photos.add(p.full);
+      });
+    }
+
+    if (photos.size === 0) {
+      $("#photoSlider img").each((_, el) => {
+        let src =
+          $(el).attr("data-src") ||
+          $(el).attr("src") ||
+          $(el).attr("data-original");
+
+        if (src && src.includes("riastatic.com")) {
+          photos.add(src.replace("/s/", "/f/"));
+        }
+      });
+    }
+  } catch {}
 
   const adId = url.match(/(\d+)\.html/)?.[1];
-  if (!adId) throw new Error(`Cannot parse ad ID from URL: ${url}`);
+  if (!adId) throw new Error(`Зламаний ID: ${url}`);
 
   return {
     id: adId,
@@ -116,7 +118,7 @@ function parseAd(html, url) {
     location,
     bodyType,
     description,
-    photos: uniquePhotos,
+    photos: [...photos],
   };
 }
 
