@@ -104,7 +104,9 @@ function parseAd(html, url) {
         }
       });
     }
-  } catch {}
+  } catch (err) {
+    console.log("Фото не витягнуто:", err.message);
+  }
 
   const adId = url.match(/(\d+)\.html/)?.[1];
   if (!adId) throw new Error(`Зламаний ID: ${url}`);
@@ -127,7 +129,7 @@ async function scrapeAd(url) {
   const data = parseAd(html, url);
 
   const filename = `ad_${data.id}.json`;
-  fs.writeFileSync(filename, JSON.stringify(data, null, 2), "utf-8");
+  fs.writeFileSync(filename, JSON.stringify(data, null, 2), "utf-8"); //Тимчасово
 
   return data;
 }
