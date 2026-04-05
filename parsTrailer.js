@@ -80,33 +80,16 @@ function parseAd(html, url) {
 
   const photos = new Set();
 
-  try {
-    const jsonMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{.+?\});/);
+  $("#photoSlider img").each((_, el) => {
+    let src =
+      $(el).attr("data-src") ||
+      $(el).attr("src") ||
+      $(el).attr("data-original");
 
-    if (jsonMatch) {
-      const jsonData = JSON.parse(jsonMatch[1]);
-      const gallery = jsonData?.ad?.photos ?? [];
-
-      gallery.forEach((p) => {
-        if (p.full) photos.add(p.full);
-      });
+    if (src && src.includes("riastatic.com")) {
+      photos.add(src.replace("/s/", "/f/"));
     }
-
-    if (photos.size === 0) {
-      $("#photoSlider img").each((_, el) => {
-        let src =
-          $(el).attr("data-src") ||
-          $(el).attr("src") ||
-          $(el).attr("data-original");
-
-        if (src && src.includes("riastatic.com")) {
-          photos.add(src.replace("/s/", "/f/"));
-        }
-      });
-    }
-  } catch (err) {
-    console.log("Фото не витягнуто:", err.message);
-  }
+  });
 
   const adId = url.match(/(\d+)\.html/)?.[1];
   if (!adId) throw new Error(`Зламаний ID: ${url}`);
