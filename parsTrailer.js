@@ -112,14 +112,14 @@ async function scrapeAd(url) {
   const data = parseAd(html, url);
 
   const filename = `ad_${data.id}.json`;
-  fs.writeFileSync(filename, JSON.stringify(data, null, 2), "utf-8"); //Тимчасово
+  fs.writeFileSync(filename, JSON.stringify(data, null, 2), "utf-8");
 
   return data;
 }
 
 const url =
   process.argv[2] ||
-  "https://auto.ria.com/uk/auto_schmitz-cargobull_cargobull_35351484.html";
+  "https://auto.ria.com/uk/auto_schmitz-cargobull_cargobull_35351484.html"; //Тимчасово
 
 scrapeAd(url)
   .then((data) => console.log("Saved:", data.id))
