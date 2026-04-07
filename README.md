@@ -1,7 +1,9 @@
-print("Hi, Maks!")
+# Parsing – Trailers
 
-Хотів через API ключ зтягнути json, але на RIA.com мене відразу заблокували. (Там взагалі якись прикол)
+This repository is a part of a larger parser, focused only on **trailers**.  
+It fetches all trailers from our partners and stores them in a database for later use on the website.
 
-Код писав не зовсім сам, пов(невивіз).
+## Features
 
-Це було цікавіше за front
+- Fetch trailer listings from partner sites
+- Save data in database
