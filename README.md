@@ -5,5 +5,5 @@ It fetches all trailers from our partners and stores them in a database for late
 
 ## Features
 
-- Fetch trailer listings from partner sites
+- Obtaining data about partner trailers from Auto.ria
 - Save data in database
