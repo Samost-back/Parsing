@@ -33,7 +33,11 @@ function parseAd(html, url) {
   if (mileageEl.length) {
     const text = mileageEl.text().replace(/\s/g, "");
     const match = text.match(/(\d+)тис\.?км/i);
-    if (match) mileage = parseInt(match[1], 10) * 1000;
+    if (match) {
+      mileage = parseInt(match[1], 10) * 1000;
+    } else if (mileageEl.text().trim() === "Без пробігу") {
+      mileage = 0;
+    }
   }
 
   const locationEl = $("#basicInfoTableMainInfoGeo span.body").first();
