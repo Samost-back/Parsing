@@ -1,15 +1,14 @@
 const axios = require("axios");
 const cheerio = require("cheerio");
 const fs = require("fs");
+const { BODY_TYPES_TRAILERS, TIMEOUT, USER_BODY } = require("./constants");
 
 async function fetchPage(url, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const res = await axios.get(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-        },
-        timeout: 20000,
+        headers: USER_BODY,
+        timeout: TIMEOUT,
       });
 
       if (res.status === 200) return res.data;
@@ -57,23 +56,11 @@ function parseAd(html, url) {
 
   if (!description) description = null;
 
-  const BODY_TYPES = [
-    "Рефрижератор",
-    "Тентований",
-    "Самоскид",
-    "Фургон",
-    "Платформа",
-    "Контейнеровоз",
-    "Цистерна",
-    "Борт",
-    "Евакуатор",
-  ];
-
-  let bodyType = null;
+  let bodyTypeTrailers = null;
   $("#descCharacteristicsValue span.body").each((_, el) => {
     const text = $(el).text().trim();
-    if (BODY_TYPES.includes(text)) {
-      bodyType = text;
+    if (BODY_TYPES_TRAILERS.includes(text)) {
+      bodyTypeTrailers = text;
       return false;
     }
   });
@@ -101,7 +88,7 @@ function parseAd(html, url) {
     priceUsd,
     mileage,
     location,
-    bodyType,
+    bodyTypeTrailers,
     description,
     photos: [...photos],
   };
