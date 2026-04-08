@@ -102,8 +102,27 @@ async function scrapeAd(url) {
   const html = await fetchPage(url);
   const data = parseAd(html, url);
 
-  const filename = `ad_${data.id}.json`;
-  fs.writeFileSync(filename, JSON.stringify(data, null, 2), "utf-8");
+  const filename = "trailer.json";
+
+  let existing = [];
+  try {
+    existing = JSON.parse(
+      (await fs.promises.readFile(filename, "utf-8")) || "[]",
+    );
+  } catch {
+    existing = [];
+  }
+
+  const alreadyExists = existing.some((item) => item.id === data.id);
+
+  if (!alreadyExists) {
+    existing.push(data);
+  }
+  await fs.promises.writeFile(
+    filename,
+    JSON.stringify(existing, null, 2),
+    "utf-8",
+  );
 
   return data;
 }
