@@ -155,41 +155,42 @@ async function scrapeAd(url) {
     existing = [];
   }
 
-  for (const adUrl of urls) {
-    try {
-      const delay = Math.floor(Math.random() * 1000) + 1000;
-      await new Promise((r) => setTimeout(r, delay));
-
-      const html = await fetchPage(adUrl);
-      if (!html) continue;
-
-      let data;
-
+  try {
+    for (const adUrl of urls) {
       try {
-        data = parseAd(html, adUrl);
+        const delay = Math.floor(Math.random() * 1000) + 1000;
+        await new Promise((r) => setTimeout(r, delay));
+
+        const html = await fetchPage(adUrl);
+        if (!html) continue;
+
+        let data;
+
+        try {
+          data = parseAd(html, adUrl);
+        } catch (err) {
+          console.error("Parse failed, skip:", adUrl);
+          continue;
+        }
+
+        const alreadyExists = existing.some((item) => item.id === data.id);
+
+        if (!alreadyExists) {
+          existing.push(data);
+          console.log("Saved:", data.id);
+        }
       } catch (err) {
-        console.error("Parse failed, skip:", adUrl);
-        continue;
+        console.error("Error parsing:", adUrl);
+        console.error(err.message);
       }
-
-      const alreadyExists = existing.some((item) => item.id === data.id);
-
-      if (!alreadyExists) {
-        existing.push(data);
-        console.log("Saved:", data.id);
-      }
-    } catch (err) {
-      console.error("Error parsing:", adUrl);
-      console.error(err.message);
     }
+  } finally {
+    await fs.promises.writeFile(
+      filename,
+      JSON.stringify(existing, null, 2),
+      "utf-8",
+    );
   }
-
-  await fs.promises.writeFile(
-    filename,
-    JSON.stringify(existing, null, 2),
-    "utf-8",
-  );
-
   return existing;
 }
 
