@@ -10,6 +10,10 @@ const {
   OUTPUT_FILE,
 } = require("./constants");
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function fetchPage(url, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -21,9 +25,13 @@ async function fetchPage(url, retries = 2) {
       if (res.status !== 200) throw new Error(`HTTP ${res.status}: ${url}`);
       return res.data;
     } catch (err) {
+      if (err.response?.status === 429) {
+        await sleep(10000);
+      }
+
       if (attempt === retries) throw err;
 
-      await new Promise((r) => setTimeout(r, attempt * 1500));
+      await sleep(attempt * 2000);
     }
   }
 }
@@ -158,8 +166,7 @@ async function scrapeAd(url) {
   try {
     for (const adUrl of urls) {
       try {
-        const delay = Math.floor(Math.random() * 1000) + 1000;
-        await new Promise((r) => setTimeout(r, delay));
+        await sleep(3000 + Math.random() * 2000);
 
         const html = await fetchPage(adUrl);
         if (!html) continue;
