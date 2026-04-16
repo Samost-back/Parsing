@@ -2,7 +2,6 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const fs = require("fs");
 const {
-  BODY_TYPES_TRAILERS,
   TIMEOUT,
   USER_BODY,
   SELECTORS,
@@ -106,10 +105,7 @@ function parseAd(html, url) {
   let bodyTypeTrailers = null;
   $(SELECTORS.characteristics).each((_, el) => {
     const text = $(el).text().trim();
-    if (BODY_TYPES_TRAILERS.includes(text)) {
-      bodyTypeTrailers = text;
-      return false;
-    }
+    bodyTypeTrailers = text;
   });
 
   const photos = new Set();
