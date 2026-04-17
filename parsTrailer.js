@@ -139,28 +139,30 @@ function parseAd(html, url) {
   };
 }
 
-async function arrayAd(url) {
-  const html = await fetchPage(url);
-  const urlArray = [];
-  return urlArrayAd(html, urlArray);
-}
+async function scrapeAd(url, maxPages = 1) {
+  const allUrls = [];
 
-async function scrapeAd(url) {
-  const urls = await arrayAd(url);
-  console.log("Found ads:", urls.length);
+  for (let i = 0; i < maxPages; i++) {
+    const pageUrl = new URL(url);
+    pageUrl.searchParams.set("page", i);
+    console.log(`Сторінка ${i + 1}/${maxPages}`);
+    const html = await fetchPage(pageUrl.toString());
+    urlArrayAd(html, allUrls);
+    if (i < maxPages - 1) await sleep(2000 + Math.random() * 1000);
+  }
 
-  const filename = OUTPUT_FILE;
+  console.log("Знайдено оголошень:", allUrls.length);
 
   let existing = [];
   try {
-    const file = await fs.promises.readFile(filename, "utf-8");
+    const file = await fs.promises.readFile(OUTPUT_FILE, "utf-8");
     existing = file ? JSON.parse(file) : [];
   } catch {
     existing = [];
   }
 
   try {
-    for (const adUrl of urls) {
+    for (const adUrl of allUrls) {
       try {
         await sleep(3000 + Math.random() * 2000);
 
@@ -189,7 +191,7 @@ async function scrapeAd(url) {
     }
   } finally {
     await fs.promises.writeFile(
-      filename,
+      OUTPUT_FILE,
       JSON.stringify(existing, null, 2),
       "utf-8",
     );
@@ -198,10 +200,10 @@ async function scrapeAd(url) {
 }
 
 const url =
-  process.argv[2] ||
   "https://auto.ria.com/uk/search/?indexName=auto%2Corder_auto%2Cnewauto_search&categories.main.id=5&body.id%5B26%5D=168"; // Тимчасовий
+const maxPages = 10; // Тимчасовий
 
-scrapeAd(url).catch((err) => {
+scrapeAd(url, maxPages).catch((err) => {
   console.error(err);
   process.exit(1);
 });
