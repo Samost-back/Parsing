@@ -1,13 +1,16 @@
 const axios = require("axios");
 const cheerio = require("cheerio");
-const fs = require("fs");
-const {
-  TIMEOUT,
-  USER_BODY,
-  SELECTORS,
-  BASE_URL,
-  OUTPUT_FILE,
-} = require("./constants");
+const { TIMEOUT, USER_BODY, SELECTORS, BASE_URL } = require("./constants");
+require("dotenv").config();
+const { Pool } = require("pg");
+
+const pool = new Pool({
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+});
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -21,15 +24,10 @@ async function fetchPage(url, retries = 2) {
         timeout: TIMEOUT,
       });
 
-      if (res.status !== 200) throw new Error(`HTTP ${res.status}: ${url}`);
+      if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
       return res.data;
     } catch (err) {
-      if (err.response?.status === 429) {
-        await sleep(10000);
-      }
-
       if (attempt === retries) throw err;
-
       await sleep(attempt * 2000);
     }
   }
@@ -37,7 +35,6 @@ async function fetchPage(url, retries = 2) {
 
 function urlArrayAd(html, urlArray) {
   const $ = cheerio.load(html);
-  const base = BASE_URL;
   const seen = new Set();
 
   $(SELECTORS.links).each((_, el) => {
@@ -46,7 +43,7 @@ function urlArrayAd(html, urlArray) {
 
     href = href.split("?")[0];
     if (!href.startsWith("http")) {
-      href = base + href;
+      href = BASE_URL + href;
     }
 
     const isValidAd = /\/auto_.*_\d+\.html$/.test(href);
@@ -72,14 +69,13 @@ function parseAd(html, url) {
 
   let mileage = null;
   const mileageEl = $(SELECTORS.mileage).first();
+
   if (mileageEl.length) {
     const text = mileageEl.text().replace(/\s/g, "");
     const match = text.match(/(\d+)тис\.?км/i);
-    if (match) {
-      mileage = parseInt(match[1], 10) * 1000;
-    } else if (mileageEl.text().trim() === "Без пробігу") {
-      mileage = 0;
-    }
+
+    if (match) mileage = parseInt(match[1], 10) * 1000;
+    else if (mileageEl.text().trim() === "Без пробігу") mileage = 0;
   }
 
   const locationEl = $(SELECTORS.location).first();
@@ -88,27 +84,22 @@ function parseAd(html, url) {
   if (locationEl.length) {
     const parts = locationEl.text().trim().split(",");
     if (parts.length >= 3) {
-      const region = parts[1].trim();
-      const city = parts[2].trim();
-      location = `${region}, ${city}`;
+      location = `${parts[1].trim()}, ${parts[2].trim()}`;
     }
   }
 
   let description = $(SELECTORS.description).text().trim();
-
   if (description.length < 20) {
     description = $('h2:contains("Опис")').parent().next().text().trim();
   }
-
   if (!description) description = null;
 
   let bodyTypeTrailers = null;
   $(SELECTORS.characteristics).each((_, el) => {
-    const text = $(el).text().trim();
-    bodyTypeTrailers = text;
+    bodyTypeTrailers = $(el).text().trim();
   });
 
-  const photos = new Set();
+  const photos = [];
 
   $(SELECTORS.photos).each((_, el) => {
     let src =
@@ -117,14 +108,14 @@ function parseAd(html, url) {
       $(el).attr("data-original");
 
     if (src && src.includes("riastatic.com")) {
-      photos.add(src.trim().replace("/s/", "/f/"));
+      photos.push(src.trim().replace("/s/", "/f/"));
     }
   });
 
   const adId =
     url.match(/auto_.*?_(\d+)\.html/)?.[1] || url.match(/(\d+)\.html/)?.[1];
 
-  if (!adId) throw new Error(`Зламаний ID: ${url}`);
+  if (!adId) throw new Error("Bad ID: " + url);
 
   return {
     id: adId,
@@ -135,8 +126,51 @@ function parseAd(html, url) {
     location,
     bodyTypeTrailers,
     description,
-    photos: [...photos],
+    photos,
   };
+}
+
+async function saveToDb(data) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const photoRes = await client.query(
+      `INSERT INTO "TrailerPhoto" (photos)
+       VALUES ($1)
+       RETURNING id`,
+      [data.photos],
+    );
+
+    const photoId = photoRes.rows[0].id;
+
+    await client.query(
+      `
+      INSERT INTO "TrailerOption"
+      (ria_id, url_ria, price_usd, mileage, location, body_type_trailers, description, trailer_photo_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT (ria_id) DO NOTHING
+      `,
+      [
+        data.id,
+        data.url,
+        data.priceUsd,
+        data.mileage,
+        data.location,
+        data.bodyTypeTrailers,
+        data.description,
+        photoId,
+      ],
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function scrapeAd(url, maxPages = 1) {
@@ -145,63 +179,35 @@ async function scrapeAd(url, maxPages = 1) {
   for (let i = 0; i < maxPages; i++) {
     const pageUrl = new URL(url);
     pageUrl.searchParams.set("page", i);
-    console.log(`Сторінка ${i + 1}/${maxPages}`);
+
     const html = await fetchPage(pageUrl.toString());
     urlArrayAd(html, allUrls);
-    if (i < maxPages - 1) await sleep(2000 + Math.random() * 1000);
+
+    await sleep(1500);
   }
 
-  console.log("Знайдено оголошень:", allUrls.length);
+  console.log("Found:", allUrls.length);
 
-  let existing = [];
-  try {
-    const file = await fs.promises.readFile(OUTPUT_FILE, "utf-8");
-    existing = file ? JSON.parse(file) : [];
-  } catch {
-    existing = [];
-  }
+  for (const adUrl of allUrls) {
+    try {
+      await sleep(2000 + Math.random() * 2000);
 
-  try {
-    for (const adUrl of allUrls) {
-      try {
-        await sleep(3000 + Math.random() * 2000);
+      const html = await fetchPage(adUrl);
+      const data = parseAd(html, adUrl);
 
-        const html = await fetchPage(adUrl);
-        if (!html) continue;
+      await saveToDb(data);
 
-        let data;
-
-        try {
-          data = parseAd(html, adUrl);
-        } catch (err) {
-          console.error("Parse failed, skip:", adUrl);
-          continue;
-        }
-
-        const alreadyExists = existing.some((item) => item.id === data.id);
-
-        if (!alreadyExists) {
-          existing.push(data);
-          console.log("Saved:", data.id);
-        }
-      } catch (err) {
-        console.error("Error parsing:", adUrl);
-        console.error(err.message);
-      }
+      console.log("Saved:", data.id);
+    } catch (err) {
+      console.error("Skip:", adUrl);
+      console.error(err.message);
     }
-  } finally {
-    await fs.promises.writeFile(
-      OUTPUT_FILE,
-      JSON.stringify(existing, null, 2),
-      "utf-8",
-    );
   }
-  return existing;
 }
 
 const url =
   "https://auto.ria.com/uk/search/?indexName=auto%2Corder_auto%2Cnewauto_search&categories.main.id=5&body.id%5B26%5D=168"; // Тимчасовий
-const maxPages = 10; // Тимчасовий
+const maxPages = 1; // Тимчасовий
 
 scrapeAd(url, maxPages).catch((err) => {
   console.error(err);
